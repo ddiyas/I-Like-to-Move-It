@@ -1,12 +1,18 @@
 import cv2
 import mediapipe as mp
 from collections import deque
+from CalorieTracker import CalorieTracker
 
 mp_pose = mp.solutions.pose
 mp_drawing = mp.solutions.drawing_utils
 pose = mp_pose.Pose(min_detection_confidence=0.7, min_tracking_confidence=0.7)
 
 cap = cv2.VideoCapture(0)
+
+# Initialize CalorieTracker with your weight in kg (adjust as needed)
+weight_kg = 130  # Default weight, can be changed
+calorie_tracker = CalorieTracker(weight_kg)
+calorie_tracker.start_session()
 
 position_history = deque(maxlen=10)
 
@@ -236,6 +242,14 @@ while cap.isOpened():
             detect_left(horizontal_movement, marker_frame)
             detect_right(horizontal_movement, marker_frame)
 
+            # Update calorie tracker based on movement
+            is_jumping = is_jumping or vertical_movement > jump_threshold
+            is_moving = is_moving_left or is_moving_right
+            calorie_tracker.update(is_jumping, is_moving)
+            
+            # DEBUG: Print calorie info
+            print(f"[DEBUG] Calories: {calorie_tracker.get_calories()} | Jumping: {is_jumping} | Moving: {is_moving}")
+
         else:
             cv2.putText(
                 marker_frame,
@@ -246,6 +260,33 @@ while cap.isOpened():
                 (0, 255, 255),
                 2,
             )
+
+    # Display calorie information
+    calories = calorie_tracker.get_calories()
+    session_time = calorie_tracker.get_session_time()
+    
+    # Draw background rectangles for visibility
+    cv2.rectangle(marker_frame, (5, 5), (300, 100), (0, 0, 0), -1)
+    
+    # Display calories in large text
+    cv2.putText(
+        marker_frame,
+        f"CALORIES: {calories}",
+        (15, 50),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        2,
+        (0, 255, 0),
+        3,
+    )
+    cv2.putText(
+        marker_frame,
+        f"Time: {session_time:.1f}s",
+        (15, 90),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        1.5,
+        (255, 255, 0),
+        2,
+    )
 
     cv2.imshow("Jump Detection", marker_frame)
 
