@@ -14,12 +14,152 @@ jump_threshold = 0.04
 is_jumping = False
 jump_cooldown = 0
 
-# Left/Right movement detection
 left_right_threshold = 0.06
 is_moving_left = False
 is_moving_right = False
 left_cooldown = 0
 right_cooldown = 0
+
+duck_threshold = -0.06
+is_ducking = False
+duck_cooldown = 0
+standing_up = False
+standup_cooldown = 0
+post_jump_cooldown = 0
+
+
+def detect_jump(vertical_movement, marker_frame):
+    global is_jumping, jump_cooldown, standing_up, standup_cooldown, post_jump_cooldown
+
+    if (
+        vertical_movement > jump_threshold
+        and not is_jumping
+        and jump_cooldown == 0
+        and not is_ducking
+        and not standing_up
+        and standup_cooldown == 0
+    ):
+        print("JUMP DETECTED!")
+        is_jumping = True
+        jump_cooldown = 20
+        post_jump_cooldown = 40
+
+        cv2.putText(
+            marker_frame,
+            "JUMP!",
+            (200, 200),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            3,
+            (0, 255, 0),
+            5,
+        )
+
+    if abs(vertical_movement) < 0.02:
+        is_jumping = False
+
+    if jump_cooldown > 0:
+        jump_cooldown -= 1
+
+    if post_jump_cooldown > 0:
+        post_jump_cooldown -= 1
+
+    if standup_cooldown > 0:
+        standup_cooldown -= 1
+
+
+def detect_left(horizontal_movement, marker_frame):
+    global is_moving_left, left_cooldown
+
+    if (
+        horizontal_movement < -left_right_threshold
+        and not is_moving_left
+        and left_cooldown == 0
+    ):
+        print("LEFT MOVEMENT DETECTED!")
+        is_moving_left = True
+        left_cooldown = 20
+
+        cv2.putText(
+            marker_frame,
+            "LEFT!",
+            (50, 200),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            3,
+            (255, 0, 255),
+            5,
+        )
+
+    if abs(horizontal_movement) < 0.02:
+        is_moving_left = False
+
+    if left_cooldown > 0:
+        left_cooldown -= 1
+
+
+def detect_right(horizontal_movement, marker_frame):
+    global is_moving_right, right_cooldown
+
+    if (
+        horizontal_movement > left_right_threshold
+        and not is_moving_right
+        and right_cooldown == 0
+    ):
+        print("RIGHT MOVEMENT DETECTED!")
+        is_moving_right = True
+        right_cooldown = 20
+
+        cv2.putText(
+            marker_frame,
+            "RIGHT!",
+            (350, 200),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            3,
+            (0, 255, 255),
+            5,
+        )
+
+    if abs(horizontal_movement) < 0.02:
+        is_moving_right = False
+
+    if right_cooldown > 0:
+        right_cooldown -= 1
+
+
+def detect_duck(vertical_movement, marker_frame):
+    global is_ducking, duck_cooldown, standing_up, standup_cooldown, post_jump_cooldown
+
+    if (
+        vertical_movement < duck_threshold
+        and not is_ducking
+        and duck_cooldown == 0
+        and post_jump_cooldown == 0
+    ):
+        print("DUCK DETECTED!")
+        is_ducking = True
+        duck_cooldown = 20
+
+        cv2.putText(
+            marker_frame,
+            "DUCK!",
+            (200, 300),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            3,
+            (255, 128, 0),
+            5,
+        )
+
+    if is_ducking and vertical_movement > 0.02:
+        print("Standing up from duck...")
+        is_ducking = False
+        standing_up = True
+        standup_cooldown = 25
+
+    if standing_up and abs(vertical_movement) < 0.02:
+        standing_up = False
+
+    if duck_cooldown > 0:
+        duck_cooldown -= 1
+
 
 while cap.isOpened():
     ret, frame = cap.read()
@@ -33,17 +173,13 @@ while cap.isOpened():
     results = pose.process(rgb_frame)
 
     if results.pose_landmarks:
-        # Draw body landmarks (excluding face)
-        # We'll manually draw connections and skip face landmarks
         landmarks = results.pose_landmarks.landmark
         h, w, _ = marker_frame.shape
 
-        # Draw all body connections except face
         for connection in mp_pose.POSE_CONNECTIONS:
             start_idx = connection[0]
             end_idx = connection[1]
 
-            # Skip face landmarks (0-10 are face/head area)
             if start_idx <= 10 or end_idx <= 10:
                 continue
 
@@ -55,24 +191,21 @@ while cap.isOpened():
 
             cv2.line(marker_frame, start_point, end_point, (0, 255, 0), 2)
 
-        # Draw body keypoints (excluding face)
         for idx, landmark in enumerate(landmarks):
-            if idx <= 10:  # Skip face landmarks
+            if idx <= 10:
                 continue
             x = int(landmark.x * w)
             y = int(landmark.y * h)
             cv2.circle(marker_frame, (x, y), 5, (0, 0, 255), -1)
 
-        # Draw a circle for the head/face
         nose = landmarks[mp_pose.PoseLandmark.NOSE]
         nose_x = int(nose.x * w)
         nose_y = int(nose.y * h)
 
-        # Calculate head radius based on shoulder width
         left_shoulder = landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER]
         right_shoulder = landmarks[mp_pose.PoseLandmark.RIGHT_SHOULDER]
         shoulder_width = abs(left_shoulder.x - right_shoulder.x) * w
-        head_radius = int(shoulder_width * 0.3)  # Head is ~30% of shoulder width
+        head_radius = int(shoulder_width * 0.3)
 
         cv2.circle(marker_frame, (nose_x, nose_y), head_radius, (255, 255, 0), 2)
 
@@ -96,96 +229,13 @@ while cap.isOpened():
             shoulder_movement = past_shoulder_y - shoulder_y
             vertical_movement = (hip_movement + shoulder_movement) / 2
 
-            # Horizontal movement (positive = moving right, negative = moving left)
             horizontal_movement = hip_x - past_hip_x
 
-            # Jump detection
-            if (
-                vertical_movement > jump_threshold
-                and not is_jumping
-                and jump_cooldown == 0
-            ):
-                print("JUMP DETECTED!")
-                is_jumping = True
-                jump_cooldown = 20
+            detect_duck(vertical_movement, marker_frame)
+            detect_jump(vertical_movement, marker_frame)
+            detect_left(horizontal_movement, marker_frame)
+            detect_right(horizontal_movement, marker_frame)
 
-                cv2.putText(
-                    marker_frame,
-                    "JUMP!",
-                    (200, 200),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    3,
-                    (0, 255, 0),
-                    5,
-                )
-
-            if abs(vertical_movement) < 0.02:
-                is_jumping = False
-
-            if jump_cooldown > 0:
-                jump_cooldown -= 1
-
-            # Left movement detection
-            if (
-                horizontal_movement < -left_right_threshold
-                and not is_moving_left
-                and left_cooldown == 0
-            ):
-                print("LEFT MOVEMENT DETECTED!")
-                is_moving_left = True
-                left_cooldown = 20
-
-                cv2.putText(
-                    marker_frame,
-                    "LEFT!",
-                    (50, 200),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    3,
-                    (255, 0, 255),
-                    5,
-                )
-
-            if abs(horizontal_movement) < 0.02:
-                is_moving_left = False
-
-            if left_cooldown > 0:
-                left_cooldown -= 1
-
-            # Right movement detection
-            if (
-                horizontal_movement > left_right_threshold
-                and not is_moving_right
-                and right_cooldown == 0
-            ):
-                print("RIGHT MOVEMENT DETECTED!")
-                is_moving_right = True
-                right_cooldown = 20
-
-                cv2.putText(
-                    marker_frame,
-                    "RIGHT!",
-                    (350, 200),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    3,
-                    (0, 255, 255),
-                    5,
-                )
-
-            if abs(horizontal_movement) < 0.02:
-                is_moving_right = False
-
-            if right_cooldown > 0:
-                right_cooldown -= 1
-
-            cv2.putText(
-                marker_frame,
-                f"Vertical: {vertical_movement:.3f} Horizontal: {horizontal_movement:.3f}",
-                (50, 50),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (255, 255, 255),
-                2,
-            )
         else:
             cv2.putText(
                 marker_frame,
